@@ -348,6 +348,11 @@ def parse_args():
 
     # ------------------- curriculum training ------------------ #
     parser.add("--dataset_ratio", default="full_beatx", type=str)  # full_beatx, 80beatx_20seamless, 50beatx_50seamless
+
+    # ------------------- continual learning (BEATX speaker sessions) ------------------ #
+    parser.add("--beatx_speakers", default=None, type=str, nargs="*")  # speaker names for dataset_ratio speakers_beatx_*
+    parser.add("--exclude_additional", default=False, type=str2bool)  # drop BEATX 'additional' (conversation) takes
+    parser.add("--speaker_index_mode", default="auto", type=str, choices=["auto", "beatx_id"])  # beatx_id: fixed BEAT2 numeric ids
     parser.add("--mmd_weight", default=0.0, type=float)  #
     parser.add("--accel_penalty_weight", default=0.0, type=float)  #
     parser.add("--globalorient_weight", default=2.0, type=float)  #

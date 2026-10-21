@@ -85,6 +85,10 @@ class UNIFIEDDataset(data.Dataset):
         self.beatx_data_dir = getattr(args, "beatx_data_path", None)
         self.embody3d_path = getattr(args, "embody3d_path", None)
         self.index_cache_dir = getattr(args, "index_cache_dir", None)
+        # Continual-learning speaker sessions (dataset_ratio=speakers_beatx_*).
+        self.beatx_speakers = getattr(args, "beatx_speakers", None)
+        self.exclude_additional = getattr(args, "exclude_additional", False)
+        self.speaker_index_mode = getattr(args, "speaker_index_mode", "auto")
 
         self.motion_fps = args.motion_fps
         self.frame_chunk_size = getattr(args, "frame_chunk_size", 1)
@@ -157,6 +161,11 @@ class UNIFIEDDataset(data.Dataset):
         # BEATX-specific speaker filters (idempotent with the build-time filter).
         if df_beatx is not None and not df_beatx.empty:
             df_beatx = self._apply_beatx_lowervalid_filters(df_beatx)
+            if self.exclude_additional:
+                # Keep only the main (type 0) takes; the conversation takes are
+                # lower-invalid for some speakers, which would unbalance sessions.
+                is_additional = df_beatx["filechunk_id"].apply(check_if_additional_split)
+                df_beatx = df_beatx[~is_additional].reset_index(drop=True)
 
         # Combine according to dataset_ratio.
         self.chunk_id_df = self._dispatch_dataset_ratio(df_beatx, df_embody3d)
@@ -165,22 +174,29 @@ class UNIFIEDDataset(data.Dataset):
             "All split values must be 'train', 'val', or 'test'"
         )
 
-        # Speaker remap: anchor on BEATX-lowervalid speakers, then the rest sorted.
-        if df_beatx is not None and not df_beatx.empty:
-            beatx_lowervalid_spk = (
-                df_beatx[df_beatx["lower_valid"] == 1]["spk_id"].unique().tolist()
-            )
-        else:
-            beatx_lowervalid_spk = []
+        if self.speaker_index_mode == "beatx_id":
+            # Fixed BEAT2 numeric ids ('2_scott_0_1_1' -> 2) so a speaker keeps the
+            # same embedding row across sessions, caches and splits.
+            self.speaker_id_to_index = self._beatx_numeric_speaker_map(self.chunk_id_df)
+        elif self.speaker_index_mode == "auto":
+            # Speaker remap: anchor on BEATX-lowervalid speakers, then the rest sorted.
+            if df_beatx is not None and not df_beatx.empty:
+                beatx_lowervalid_spk = (
+                    df_beatx[df_beatx["lower_valid"] == 1]["spk_id"].unique().tolist()
+                )
+            else:
+                beatx_lowervalid_spk = []
 
-        other_speaker_ids = sorted(
-            spk for spk in self.chunk_id_df["spk_id"].unique().tolist()
-            if spk not in beatx_lowervalid_spk
-        )
-        speaker_ids = beatx_lowervalid_spk + other_speaker_ids
-        self.speaker_id_to_index = {s: i for i, s in enumerate(speaker_ids)}
+            other_speaker_ids = sorted(
+                spk for spk in self.chunk_id_df["spk_id"].unique().tolist()
+                if spk not in beatx_lowervalid_spk
+            )
+            speaker_ids = beatx_lowervalid_spk + other_speaker_ids
+            self.speaker_id_to_index = {s: i for i, s in enumerate(speaker_ids)}
+        else:
+            raise ValueError(f"Unsupported speaker_index_mode={self.speaker_index_mode!r}.")
         logger.info(
-            f"UNIFIEDDataset: found {len(speaker_ids)} unique speakers "
+            f"UNIFIEDDataset: found {len(self.speaker_id_to_index)} unique speakers "
             f"(dataset_ratio={self.dataset_ratio})."
         )
         self.chunk_id_df["spk_id"] = (
@@ -272,6 +288,28 @@ class UNIFIEDDataset(data.Dataset):
         df.loc[df["spk_id"].isin(drop_all), "lower_valid"] = 0
         return df
 
+    @staticmethod
+    def _beatx_numeric_speaker_map(df: pd.DataFrame) -> dict[str, int]:
+        if not (df["dataset_name"] == "BEATX").all():
+            raise ValueError("speaker_index_mode='beatx_id' supports BEATX-only dataset_ratio values.")
+        numeric_ids = df["filechunk_id"].str.split("_").str[0].astype(int)
+        pairs = set(zip(df["spk_id"], numeric_ids))
+        mapping = dict(pairs)
+        if len(mapping) != len(pairs):
+            raise ValueError(f"BEATX speaker names map to multiple numeric ids: {sorted(pairs)}")
+        return mapping
+
+    def _selected_beatx_speakers(self, df_beatx: pd.DataFrame) -> list[str]:
+        if not self.beatx_speakers:
+            raise ValueError(
+                f"dataset_ratio={self.dataset_ratio!r} needs --beatx_speakers (e.g. --beatx_speakers scott)."
+            )
+        available = set(df_beatx["spk_id"].unique())
+        unknown = sorted(set(self.beatx_speakers) - available)
+        if unknown:
+            raise ValueError(f"Unknown BEATX speakers {unknown}; available: {sorted(available)}")
+        return list(self.beatx_speakers)
+
     def _dispatch_dataset_ratio(
         self,
         df_beatx: Optional[pd.DataFrame],
@@ -319,6 +357,16 @@ class UNIFIEDDataset(data.Dataset):
             return df_beatx[
                 (df_beatx["spk_id"] == "scott") & (df_beatx["lower_valid"] == 1)
             ].reset_index(drop=True)
+        if ratio == "speakers_beatx_lowervalid":
+            _need_beatx()
+            speakers = self._selected_beatx_speakers(df_beatx)
+            return df_beatx[
+                df_beatx["spk_id"].isin(speakers) & (df_beatx["lower_valid"] == 1)
+            ].reset_index(drop=True)
+        if ratio == "speakers_beatx_fulllength":
+            _need_beatx()
+            speakers = self._selected_beatx_speakers(df_beatx)
+            return df_beatx[df_beatx["spk_id"].isin(speakers)].reset_index(drop=True)
 
         if ratio == "full_embody3d":
             _need_embody3d()

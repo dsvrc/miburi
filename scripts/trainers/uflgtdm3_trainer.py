@@ -364,7 +364,7 @@ class UpperFaceLowerGTDM3Trainer(BaseGLMTrainer):
             lower_valid_mask = dict_data["lower_valid_mask"].to(self.local_rank)
             assert lower_valid_mask is not None, "Lower valid mask should not be None in training"
 
-            if self.args.dataset_ratio == "full_beatx_lowervalid":
+            if self.args.dataset_ratio in ("full_beatx_lowervalid", "speakers_beatx_lowervalid"):
                 assert not (lower_valid_mask == 0).any(), "Lower valid mask should not be zero in training" 
         
 
