@@ -15,6 +15,22 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
+# torch 2.9's Inductor runs `nvcc --version` on every compile and only tolerates a
+# missing nvcc; a PATH entry where exec'ing nvcc is permission-denied aborts training.
+# Drop such entries so nvcc reads as missing (the PyTorch wheels do not need it).
+# Set NO_TORCH_COMPILE=1 to skip torch.compile altogether instead.
+clean_path=""
+IFS=: read -ra path_dirs <<< "$PATH"
+for d in "${path_dirs[@]}"; do
+  "${d:-.}/nvcc" --version >/dev/null 2>&1 && rc=0 || rc=$?
+  if [ "$rc" -eq 126 ]; then
+    echo "note: dropping $d from PATH (nvcc there is not executable)" >&2
+    continue
+  fi
+  clean_path="${clean_path:+$clean_path:}$d"
+done
+export PATH="$clean_path"
+
 CODECS="upperhands lowertransvel faceexp"
 
 stage=${1:-}
