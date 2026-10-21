@@ -743,28 +743,31 @@ def _assess_global_orient_quality(
     }
 
 
-def _load_models(args, device: str):
+def _load_models(args, device: str, load_mimi: bool = True):
     from miburi.models import loaders
     import smplx
 
     t0 = time.time()
-    logger.info("Model init on {}: loading Moshi/Mimi...", device)
-    checkpoint_info = loaders.CheckpointInfo.from_hf_repo(loaders.DEFAULT_REPO)
-    mimi = checkpoint_info.get_mimi()
-    mimi.set_num_codebooks(args.mimi_codebooks)
-    mimi = mimi.to(device).eval()
+    mimi = None
+    interleaved_tokenizer = None
+    if load_mimi:
+        logger.info("Model init on {}: loading Moshi/Mimi...", device)
+        checkpoint_info = loaders.CheckpointInfo.from_hf_repo(loaders.DEFAULT_REPO)
+        mimi = checkpoint_info.get_mimi()
+        mimi.set_num_codebooks(args.mimi_codebooks)
+        mimi = mimi.to(device).eval()
 
-    text_tokenizer = checkpoint_info.get_text_tokenizer()
-    interleaver = Interleaver(
-        text_tokenizer,
-        mimi.frame_rate,
-        text_padding=3,
-        end_of_text_padding=0,
-        zero_padding=-1,
-        keep_main_only=True,
-        device=device,
-    )
-    interleaved_tokenizer = InterleavedTokenizer(mimi, interleaver)
+        text_tokenizer = checkpoint_info.get_text_tokenizer()
+        interleaver = Interleaver(
+            text_tokenizer,
+            mimi.frame_rate,
+            text_padding=3,
+            end_of_text_padding=0,
+            zero_padding=-1,
+            keep_main_only=True,
+            device=device,
+        )
+        interleaved_tokenizer = InterleavedTokenizer(mimi, interleaver)
 
     logger.info("Model init on {}: loading SMPL-X model...", device)
     smplx_model = smplx.create(
@@ -1404,7 +1407,7 @@ def build_hdf5_database_parallel(args) -> dict[str, Any]:
     return final_payload
 
 
-def parse_args():
+def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", default="datasets/beat_english_v2.0.0/")
     # parser.add_argument("--motion_dir", default="/CT/GestureSynth2/work/SeamlessInteraction/seamless_retracking")
@@ -1487,7 +1490,11 @@ def parse_args():
     parser.add_argument("--write_chunk_index_cache", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--index_cache_dir", type=str, default=None)
 
-    return parser.parse_args()
+    return parser
+
+
+def parse_args():
+    return build_arg_parser().parse_args()
 
 
 if __name__ == "__main__":

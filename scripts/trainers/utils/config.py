@@ -353,6 +353,8 @@ def parse_args():
     parser.add("--beatx_speakers", default=None, type=str, nargs="*")  # speaker names for dataset_ratio speakers_beatx_*
     parser.add("--exclude_additional", default=False, type=str2bool)  # drop BEATX 'additional' (conversation) takes
     parser.add("--speaker_index_mode", default="auto", type=str, choices=["auto", "beatx_id"])  # beatx_id: fixed BEAT2 numeric ids
+    parser.add("--beatx_source", default="hdf5", type=str, choices=["hdf5", "raw"])  # raw: build chunks in memory from beatx_data_path, no cache
+    parser.add("--beatx_split_csv", default=None, type=str)  # raw source split file; default <beatx_data_path>/train_test_split.csv
     parser.add("--mmd_weight", default=0.0, type=float)  #
     parser.add("--accel_penalty_weight", default=0.0, type=float)  #
     parser.add("--globalorient_weight", default=2.0, type=float)  #

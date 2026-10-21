@@ -7,9 +7,9 @@ embody3d_path: datasets/embody_3d_aiagent/
 
 deps_path: assets_dep/
 
-cache_path: datasets/data_cache/embody3d_dyadic/database.hdf5
-beatx_cache_path: datasets/data_cache/beatx/database.hdf5
-embody3d_cache_path: datasets/data_cache/embody3d_dyadic/database.hdf5
+# No HDF5 cache: BEATX chunks are built in memory from the raw files at startup.
+beatx_source: raw
+beatx_split_csv: configs/cl_beatx/beat_english_train_test_split.csv
 
 # is_continue: False
 # continue_ckpt: 

@@ -89,6 +89,9 @@ class UNIFIEDDataset(data.Dataset):
         self.beatx_speakers = getattr(args, "beatx_speakers", None)
         self.exclude_additional = getattr(args, "exclude_additional", False)
         self.speaker_index_mode = getattr(args, "speaker_index_mode", "auto")
+        # "raw": build BEATX chunks in memory from the raw files instead of reading the HDF5 cache.
+        self.beatx_source = getattr(args, "beatx_source", "hdf5")
+        self._memory_stores: dict[str, Any] = {}
 
         self.motion_fps = args.motion_fps
         self.frame_chunk_size = getattr(args, "frame_chunk_size", 1)
@@ -151,9 +154,12 @@ class UNIFIEDDataset(data.Dataset):
 
     def _load_chunk_ids(self):
         # Per-source dataframes built from the in-HDF5 chunk index.
-        df_beatx = self._build_source_df(
-            self.beatx_cache_path, dataset_name="BEATX", lower_valid_default=1
-        )
+        if self.beatx_source == "raw":
+            df_beatx = self._build_beatx_raw_df()
+        else:
+            df_beatx = self._build_source_df(
+                self.beatx_cache_path, dataset_name="BEATX", lower_valid_default=1
+            )
         df_embody3d = self._build_source_df(
             self.embody3d_cache_path, dataset_name="Embody3D", lower_valid_default=0
         )
@@ -273,6 +279,32 @@ class UNIFIEDDataset(data.Dataset):
             df["spk_id"] = df["filechunk_id"].apply(get_embody3d_spkids)
         else:
             df["spk_id"] = list(table.speaker_ids)
+        return df
+
+    def _build_beatx_raw_df(self) -> pd.DataFrame:
+        from .beatx.raw_source import get_beatx_memory_store
+
+        fulllength = "fulllength" in self.dataset_ratio
+        store = get_beatx_memory_store(
+            self.args,
+            speakers=self.beatx_speakers if self.dataset_ratio.startswith("speakers_beatx") else None,
+            full_sequence=fulllength,
+            multimodal=fulllength or not self.only_motion,
+            exclude_additional=self.exclude_additional,
+        )
+        # Kept on the dataset so DataLoader workers get it whether they fork or spawn.
+        self._memory_stores[store.key] = store
+        n = len(store.chunk_ids)
+        df = pd.DataFrame({
+            "filechunk_id": store.chunk_ids,
+            "split": store.chunk_splits,
+            "relpath": store.chunk_relpaths,
+            "hdf5_path": [store.key] * n,
+            "dataset_name": ["BEATX"] * n,
+            "lower_valid": [1] * n,
+        })
+        df.loc[df["split"] == "dev", "split"] = "val"
+        df["spk_id"] = df["filechunk_id"].apply(get_beatx_spkids)
         return df
 
     @staticmethod
@@ -421,6 +453,9 @@ class UNIFIEDDataset(data.Dataset):
 
     # -------------------------------------------------------------- handles
     def _get_h5(self, path: str) -> h5py.File:
+        store = self._memory_stores.get(path)
+        if store is not None:
+            return store
         f = self._h5_handles.get(path)
         if f is not None:
             return f
