@@ -786,8 +786,8 @@ class UNIFIEDDataset(data.Dataset):
     @staticmethod
     def inverse_selection_tensor(filtered_t, selection_array, n):
         selection_array = torch.from_numpy(selection_array).to(filtered_t.device)
-        original_shape_t = torch.zeros((n, 165)).to(filtered_t.device)
+        original_shape_t = torch.zeros((n, 165), device=filtered_t.device)
         selected_indices = torch.where(selection_array == 1)[0]
-        for i in range(n):
-            original_shape_t[i, selected_indices] = filtered_t[i]
+        # One indexed write for all n = B*T frames (a per-frame loop dominated step time).
+        original_shape_t[:, selected_indices] = filtered_t[:n]
         return original_shape_t

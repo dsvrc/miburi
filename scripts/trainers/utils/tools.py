@@ -613,7 +613,7 @@ def inverse_selection_tensor(filtered_t, selection_array, n):
     # breakpoint()
 
     # Fill the values filtered_t into the corresponding positions in original_shape_t
-    for i in range(n):
-        original_shape_t[i, selected_indices] = filtered_t[i]
+    # (one indexed write for all n frames; a per-frame loop dominated step time)
+    original_shape_t[:, selected_indices] = filtered_t[:n]
         
     return original_shape_t
